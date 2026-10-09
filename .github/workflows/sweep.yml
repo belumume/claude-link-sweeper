@@ -1,0 +1,60 @@
+name: Sweep Claude links
+
+# Removes links to Claude sessions, threads and projects, and bare Claude
+# session IDs, from PRs, issues, comments and reviews in every repository the
+# token's owner owns. Recent activity every 10 minutes, everything nightly.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Sweep everything, not just recent activity
+        type: boolean
+        default: false
+      dry_run:
+        description: Report counts without changing anything
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test
+        run: node test/sweep.test.cjs
+
+      - name: Sweep
+        run: node scripts/sweep.cjs
+        env:
+          SWEEP_TOKEN: ${{ secrets.SWEEP_TOKEN }}
+          REPORT_REPO: ${{ vars.REPORT_REPO || 'belumume/claude-config' }}
+          FULL: ${{ github.event.schedule == '41 2 * * *' || inputs.full == true }}
+          DRY_RUN: ${{ inputs.dry_run == true }}
+
+      # GitHub turns off scheduled workflows in a public repository after 60 days
+      # without a commit, so keep one recent.
+      - name: Keep the schedule alive
+        if: github.event.schedule == '41 2 * * *'
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt $(( 45 * 86400 )) ]; then
+            date -u +%F > .keepalive
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add .keepalive
+            git commit -m 'Keep the scheduled sweep active'
+            git push
+          fi
