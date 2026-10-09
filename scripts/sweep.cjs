@@ -144,6 +144,26 @@ function makeSweeper(me, since) {
   return { stats, sweepRepo };
 }
 
+// The token shares its owner's hourly API budget with everything else they run,
+// so a recent sweep only visits repositories with an issue or PR updated in the
+// window (a new or edited comment or review updates its PR or issue), found with
+// one search per kind instead of listing every repository. Returns null, meaning
+// sweep them all, if the search comes back incomplete.
+async function touchedRepos(me, since) {
+  const names = new Set();
+  const stamp = since.replace(/\.\d+Z$/, 'Z');
+  for (const kind of ['is:issue', 'is:pr']) {
+    for (let page = 1; ; page++) {
+      const query = encodeURIComponent(`user:${me} ${kind} updated:>=${stamp}`);
+      const res = await api('GET', `/search/issues?q=${query}&per_page=100&page=${page}`);
+      if (res.incomplete_results || page > 10) return null;
+      for (const item of res.items) names.add(item.repository_url.split('/repos/')[1]);
+      if (res.items.length < 100) break;
+    }
+  }
+  return names;
+}
+
 async function report(commits) {
   if (!commits.length || !REPORT_REPO || DRY_RUN) return;
   let issue = null;
@@ -169,10 +189,12 @@ async function main() {
   }
   const me = (await api('GET', '/user')).login;
   const since = FULL ? null : new Date(Date.now() - WINDOW_MINUTES * 60 * 1000).toISOString();
+  const touched = since ? await touchedRepos(me, since) : null;
   const { stats, sweepRepo } = makeSweeper(me, since);
   let repos = 0;
   for await (const repo of paginate('/user/repos?affiliation=owner')) {
     if (repo.archived) continue;
+    if (touched && !touched.has(repo.full_name) && !(repo.pushed_at && repo.pushed_at >= since)) continue;
     repos++;
     try {
       await sweepRepo(repo);

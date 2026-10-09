@@ -11,7 +11,13 @@ const R = '/repos/me/site';
 const writes = [];
 const data = {
   '/user': { login: 'me' },
-  '/user/repos': [{ full_name: 'me/site', pushed_at: '2999-01-01T00:00:00Z' }, { full_name: 'me/old', archived: true }],
+  // me/quiet has no recent activity, so any request for it fails the test
+  '/user/repos': [
+    { full_name: 'me/site', pushed_at: '2999-01-01T00:00:00Z' },
+    { full_name: 'me/old', archived: true },
+    { full_name: 'me/quiet', pushed_at: '2000-01-01T00:00:00Z' },
+  ],
+  '/search/issues': { incomplete_results: false, items: [{ repository_url: 'https://api.github.com/repos/me/site' }] },
   [`${R}/issues`]: [
     { number: 2, title: 'Add page', body: `Body\n\n${L}/session_x`, pull_request: {} },
     { number: 5, title: 'Clean issue', body: 'nothing here' },
